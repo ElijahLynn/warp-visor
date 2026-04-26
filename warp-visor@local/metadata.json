@@ -1,0 +1,11 @@
+{
+  "description": "Toggle Warp as a GNOME Wayland visor window",
+  "name": "Warp Visor",
+  "settings-schema": "org.gnome.shell.extensions.warp-visor",
+  "shell-version": [
+    "50"
+  ],
+  "uuid": "warp-visor@local",
+  "version": 1,
+  "version-name": "0.1.0"
+}

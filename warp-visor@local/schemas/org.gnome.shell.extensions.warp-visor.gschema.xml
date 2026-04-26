@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.warp-visor" path="/org/gnome/shell/extensions/warp-visor/">
+    <key name="toggle-top-keybinding" type="as">
+      <default><![CDATA[['<Shift><Alt>T']]]></default>
+      <summary>Toggle top visor</summary>
+      <description>Keyboard shortcut for showing, focusing, or hiding the top Warp visor.</description>
+    </key>
+    <key name="toggle-bottom-keybinding" type="as">
+      <default><![CDATA[['<Shift><Alt>B']]]></default>
+      <summary>Toggle bottom visor</summary>
+      <description>Keyboard shortcut for showing, focusing, or hiding the bottom Warp visor.</description>
+    </key>
+    <key name="warp-app-id" type="s">
+      <default>'dev.warp.Warp.desktop'</default>
+      <summary>Warp desktop app id</summary>
+      <description>The desktop application id used to find and launch Warp.</description>
+    </key>
+    <key name="default-height-percent" type="i">
+      <range min="10" max="100"/>
+      <default>50</default>
+      <summary>Default visor height percentage</summary>
+      <description>The default height for top and bottom visor placements.</description>
+    </key>
+    <key name="current-placement" type="s">
+      <choices>
+        <choice value="top"/>
+        <choice value="bottom"/>
+        <choice value="hidden"/>
+      </choices>
+      <default>'hidden'</default>
+      <summary>Current visor placement</summary>
+      <description>The last placement managed by the extension.</description>
+    </key>
+    <key name="top-geometry" type="s">
+      <default>''</default>
+      <summary>Saved top geometry</summary>
+      <description>JSON encoded frame rectangle for the top visor.</description>
+    </key>
+    <key name="bottom-geometry" type="s">
+      <default>''</default>
+      <summary>Saved bottom geometry</summary>
+      <description>JSON encoded frame rectangle for the bottom visor.</description>
+    </key>
+    <key name="always-on-top" type="b">
+      <default>true</default>
+      <summary>Keep visor above other windows</summary>
+      <description>Whether to mark the Warp visor as always above normal windows.</description>
+    </key>
+    <key name="all-workspaces" type="b">
+      <default>true</default>
+      <summary>Show visor on all workspaces</summary>
+      <description>Whether to stick the Warp visor to all workspaces.</description>
+    </key>
+  </schema>
+</schemalist>

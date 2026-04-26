@@ -1,0 +1,4 @@
+*.shell-extension.zip
+warp-visor@local/schemas/gschemas.compiled
+.codex
+task outline.md
