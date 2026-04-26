@@ -19,6 +19,7 @@ import {
 const STARTUP_TIMEOUT_SECONDS = 5;
 const GEOMETRY_SAVE_DELAY_MS = 250;
 const POST_LAUNCH_REFIT_DELAY_MS = 200;
+const PROGRAMMATIC_GEOMETRY_SAVE_SUPPRESSION_MS = 1000;
 
 export default class WarpVisorExtension extends Extension {
   enable() {
@@ -32,8 +33,10 @@ export default class WarpVisorExtension extends Extension {
     this._geometrySaveId = 0;
     this._appWindowsChangedId = 0;
     this._settingsSignals = [];
+    this._hiddenActorOpacity = null;
     this._app = null;
     this._applyingGeometry = false;
+    this._suppressGeometrySaveUntilUs = 0;
 
     this._settingsSignals.push(
       this._settings.connect("changed::skip-taskbar", () => {
@@ -192,15 +195,14 @@ export default class WarpVisorExtension extends Extension {
         this._pendingRevealId = 0;
         if (this._window === window && this._isUsableWindow(window)) {
           this._applyGeometry(window, placement);
-          window.unminimize();
-          Main.activateWindow(window);
-          this._queuePostLaunchRefit(window, placement);
+          this._revealMinimizedWindow(window, placement);
         }
         return GLib.SOURCE_REMOVE;
       });
       return;
     }
 
+    this._restoreWindowOpacity(window);
     Main.activateWindow(window);
     this._queuePostLaunchRefit(window, placement);
   }
@@ -225,7 +227,40 @@ export default class WarpVisorExtension extends Extension {
       window.unmake_above();
     }
 
+    this._hideWindowActor(window);
     window.minimize();
+  }
+
+  _revealMinimizedWindow(window, placement) {
+    window.unminimize();
+    this._applyGeometry(window, placement);
+    Main.activateWindow(window);
+
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+      this._restoreWindowOpacity(window);
+
+      if (this._window === window && this._isUsableWindow(window)) {
+        this._queuePostLaunchRefit(window, placement);
+      }
+
+      return GLib.SOURCE_REMOVE;
+    });
+  }
+
+  _hideWindowActor(window) {
+    const actor = window.get_compositor_private?.();
+    if (!actor) return;
+
+    this._hiddenActorOpacity = actor.opacity;
+    actor.opacity = 0;
+  }
+
+  _restoreWindowOpacity(window) {
+    const actor = window.get_compositor_private?.();
+    if (!actor) return;
+
+    actor.opacity = this._hiddenActorOpacity ?? 255;
+    this._hiddenActorOpacity = null;
   }
 
   _unmaximizeWindow(window) {
@@ -254,6 +289,9 @@ export default class WarpVisorExtension extends Extension {
     );
 
     this._applyingGeometry = true;
+    this._clearGeometrySave();
+    this._suppressGeometrySaveUntilUs =
+      GLib.get_monotonic_time() + PROGRAMMATIC_GEOMETRY_SAVE_SUPPRESSION_MS * 1000;
     this._logGeometry("before", window, placement, geometry, workArea);
     window.move_to_monitor(monitor);
     window.move_resize_frame(true, geometry.x, geometry.y, geometry.width, geometry.height);
@@ -369,6 +407,7 @@ export default class WarpVisorExtension extends Extension {
 
   _queueGeometrySave() {
     if (this._applyingGeometry) return;
+    if (GLib.get_monotonic_time() < this._suppressGeometrySaveUntilUs) return;
 
     this._clearGeometrySave();
     this._geometrySaveId = GLib.timeout_add(

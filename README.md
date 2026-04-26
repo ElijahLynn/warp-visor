@@ -125,7 +125,7 @@ test in a nested development Shell.
 For GNOME 49 and later:
 
 ```sh
-dbus-run-session gnome-shell --devkit --wayland
+dbus-run-session -- bash
 ```
 
 On Arch Linux, this requires:
@@ -134,21 +134,56 @@ On Arch Linux, this requires:
 sudo pacman -S mutter-devkit
 ```
 
-The nested Shell opens in a separate window. Enable Warp Visor inside that
-nested session, then test there. If you need a stand-in app instead of the real
-Warp instance, GNOME Console works well:
+Inside the `dbus-run-session` shell, start the nested Shell and enable the
+extension from that same D-Bus session:
+
+```sh
+make install
+gnome-shell --devkit --wayland &
+gnome-extensions enable warp-visor@local
+gnome-extensions info warp-visor@local
+```
+
+The nested Shell opens in a separate window. Focus that window, then test
+there. If you need a stand-in app instead of the real Warp instance, GNOME
+Console works well:
 
 ```sh
 GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
 gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'org.gnome.Console.desktop'
 ```
 
+Change it back to real Warp with:
+
+```sh
+GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
+gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'dev.warp.Warp.desktop'
+```
+
+Disable the host copy while testing in the nested Shell so the host session
+does not grab the same shortcuts:
+
+```sh
+gnome-extensions disable warp-visor@local
+```
+
+When you are done testing, re-enable the host copy:
+
+```sh
+gnome-extensions enable warp-visor@local
+```
+
 The development loop is:
 
 ```sh
 make install
-# Stop the nested Shell with Ctrl+C, then start it again:
-dbus-run-session gnome-shell --devkit --wayland
+# Stop the nested Shell job:
+jobs
+kill %1
+
+# Then start it again from the dbus-run-session shell:
+gnome-shell --devkit --wayland &
+gnome-extensions enable warp-visor@local
 ```
 
 Watch logs from the terminal that launched the nested Shell. For the host
@@ -158,10 +193,37 @@ session, this is also useful:
 journalctl --user -f -o cat
 ```
 
+### Agent Notes
+
+For nested GNOME Shell testing, use GNOME Console as the target app unless the
+user explicitly wants real Warp:
+
+```sh
+GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
+gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'org.gnome.Console.desktop'
+```
+
+Change it back to real Warp with:
+
+```sh
+GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
+gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'dev.warp.Warp.desktop'
+```
+
+Host `gnome-extensions` commands do not prove nested-shell extension state. The
+nested Shell has its own session; enable Warp Visor inside the nested Extensions
+app or run `gnome-extensions enable warp-visor@local` inside a
+`dbus-run-session -- bash` shell. Watch the terminal that launched
+`gnome-shell --devkit --wayland`.
+
+During nested testing, disable the host copy with
+`gnome-extensions disable warp-visor@local`; when finished, re-enable it with
+`gnome-extensions enable warp-visor@local`.
+
 ## Troubleshooting
 
-If a shortcut launches on the host instead of the nested Shell, disable the host
-copy while testing:
+If a shortcut launches on the host instead of the nested Shell, verify that the
+host copy is disabled while testing:
 
 ```sh
 gnome-extensions disable warp-visor@local
