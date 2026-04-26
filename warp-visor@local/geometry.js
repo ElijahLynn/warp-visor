@@ -32,6 +32,19 @@ export function clampGeometry(geometry, workArea) {
   };
 }
 
+export function anchorGeometryToPlacement(geometry, workArea, placement) {
+  const clamped = clampGeometry(geometry, workArea);
+  const y =
+    placement === PLACEMENT_BOTTOM
+      ? workArea.y + workArea.height - clamped.height
+      : workArea.y;
+
+  return {
+    ...clamped,
+    y,
+  };
+}
+
 export function parseGeometry(value) {
   if (!value) return null;
 

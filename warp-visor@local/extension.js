@@ -9,7 +9,7 @@ import {
   PLACEMENT_BOTTOM,
   PLACEMENT_HIDDEN,
   PLACEMENT_TOP,
-  clampGeometry,
+  anchorGeometryToPlacement,
   computeDefaultGeometry,
   keyForPlacement,
   parseGeometry,
@@ -28,6 +28,7 @@ export default class WarpVisorExtension extends Extension {
     this._windowSignals = [];
     this._startupTimeoutId = 0;
     this._postLaunchRefitId = 0;
+    this._pendingRevealId = 0;
     this._geometrySaveId = 0;
     this._appWindowsChangedId = 0;
     this._app = null;
@@ -55,6 +56,7 @@ export default class WarpVisorExtension extends Extension {
     Main.wm.removeKeybinding("toggle-bottom-keybinding");
     this._clearStartupWatch();
     this._clearPostLaunchRefit();
+    this._clearPendingReveal();
     this._clearGeometrySave();
     this._disconnectWindow();
     this._disconnectApp();
@@ -163,10 +165,7 @@ export default class WarpVisorExtension extends Extension {
 
   _showWindow(window, placement) {
     this._trackWindow(window);
-
-    if (typeof window.unminimize === "function" && window.minimized) {
-      window.unminimize();
-    }
+    this._clearPendingReveal();
 
     if (this._settings.get_boolean("all-workspaces")) {
       window.stick();
@@ -179,8 +178,26 @@ export default class WarpVisorExtension extends Extension {
     this._unmaximizeWindow(window);
     this._applyGeometry(window, placement);
     this._settings.set_string("current-placement", placement);
-    Main.activateWindow(window);
 
+    if (typeof window.unminimize === "function" && window.minimized) {
+      this._pendingRevealId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+        this._pendingRevealId = 0;
+        if (this._window === window && this._isUsableWindow(window)) {
+          this._applyGeometry(window, placement);
+          window.unminimize();
+          Main.activateWindow(window);
+          this._queuePostLaunchRefit(window, placement);
+        }
+        return GLib.SOURCE_REMOVE;
+      });
+      return;
+    }
+
+    Main.activateWindow(window);
+    this._queuePostLaunchRefit(window, placement);
+  }
+
+  _queuePostLaunchRefit(window, placement) {
     this._clearPostLaunchRefit();
     this._postLaunchRefitId = GLib.timeout_add(
       GLib.PRIORITY_DEFAULT,
@@ -222,7 +239,11 @@ export default class WarpVisorExtension extends Extension {
       placement,
       this._settings.get_int("default-height-percent")
     );
-    const geometry = clampGeometry(savedGeometry || defaultGeometry, workArea);
+    const geometry = anchorGeometryToPlacement(
+      savedGeometry || defaultGeometry,
+      workArea,
+      placement
+    );
 
     this._applyingGeometry = true;
     this._logGeometry("before", window, placement, geometry, workArea);
@@ -316,6 +337,13 @@ export default class WarpVisorExtension extends Extension {
 
     GLib.Source.remove(this._postLaunchRefitId);
     this._postLaunchRefitId = 0;
+  }
+
+  _clearPendingReveal() {
+    if (!this._pendingRevealId) return;
+
+    GLib.Source.remove(this._pendingRevealId);
+    this._pendingRevealId = 0;
   }
 
   _queueGeometrySave() {

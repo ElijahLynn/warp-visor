@@ -1,6 +1,7 @@
 import {
   PLACEMENT_BOTTOM,
   PLACEMENT_TOP,
+  anchorGeometryToPlacement,
   clampGeometry,
   computeDefaultGeometry,
   keyForPlacement,
@@ -40,6 +41,26 @@ assertEqual(
   clampGeometry({ x: 1800, y: 1000, width: 400, height: 300 }, workArea),
   { x: 1520, y: 780, width: 400, height: 300 },
   "clamp partially offscreen geometry"
+);
+
+assertEqual(
+  anchorGeometryToPlacement(
+    { x: 20, y: 224, width: 1200, height: 384 },
+    workArea,
+    PLACEMENT_TOP
+  ),
+  { x: 20, y: 32, width: 1200, height: 384 },
+  "anchor saved top geometry to work area top"
+);
+
+assertEqual(
+  anchorGeometryToPlacement(
+    { x: 20, y: 224, width: 1200, height: 384 },
+    workArea,
+    PLACEMENT_BOTTOM
+  ),
+  { x: 20, y: 696, width: 1200, height: 384 },
+  "anchor saved bottom geometry to work area bottom"
 );
 
 const encoded = serializeGeometry({ x: 1.2, y: 2.7, width: 300.2, height: 400.8 });
