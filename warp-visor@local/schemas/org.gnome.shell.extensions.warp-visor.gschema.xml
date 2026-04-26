@@ -52,5 +52,10 @@
       <summary>Show visor on all workspaces</summary>
       <description>Whether to stick the Warp visor to all workspaces.</description>
     </key>
+    <key name="skip-taskbar" type="b">
+      <default>true</default>
+      <summary>Hide visor in certain modes</summary>
+      <description>When enabled, the Warp visor will not appear in overview mode or when using Alt+Tab.</description>
+    </key>
   </schema>
 </schemalist>

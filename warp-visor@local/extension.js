@@ -31,8 +31,15 @@ export default class WarpVisorExtension extends Extension {
     this._pendingRevealId = 0;
     this._geometrySaveId = 0;
     this._appWindowsChangedId = 0;
+    this._settingsSignals = [];
     this._app = null;
     this._applyingGeometry = false;
+
+    this._settingsSignals.push(
+      this._settings.connect("changed::skip-taskbar", () => {
+        this._configureSkipTaskbarProperty();
+      })
+    );
 
     Main.wm.addKeybinding(
       "toggle-top-keybinding",
@@ -58,6 +65,7 @@ export default class WarpVisorExtension extends Extension {
     this._clearPostLaunchRefit();
     this._clearPendingReveal();
     this._clearGeometrySave();
+    this._disconnectSettings();
     this._disconnectWindow();
     this._disconnectApp();
     this._settings = null;
@@ -295,6 +303,7 @@ export default class WarpVisorExtension extends Extension {
 
     this._disconnectWindow();
     this._window = window;
+    this._configureSkipTaskbarProperty(window);
     this._windowSignals = [
       window.connect("position-changed", () => this._queueGeometrySave()),
       window.connect("size-changed", () => this._queueGeometrySave()),
@@ -307,6 +316,8 @@ export default class WarpVisorExtension extends Extension {
 
   _disconnectWindow() {
     if (!this._window) return;
+
+    this._resetSkipTaskbarProperty(this._window);
 
     for (const signalId of this._windowSignals) {
       this._window.disconnect(signalId);
@@ -323,6 +334,16 @@ export default class WarpVisorExtension extends Extension {
 
     this._app = null;
     this._appWindowsChangedId = 0;
+  }
+
+  _disconnectSettings() {
+    if (!this._settings) return;
+
+    for (const signalId of this._settingsSignals) {
+      this._settings.disconnect(signalId);
+    }
+
+    this._settingsSignals = [];
   }
 
   _clearStartupWatch() {
@@ -396,6 +417,31 @@ export default class WarpVisorExtension extends Extension {
       rect.x + rect.width >= workArea.x + workArea.width &&
       rect.y + rect.height >= workArea.y + workArea.height
     );
+  }
+
+  _configureSkipTaskbarProperty(window = this._window) {
+    if (!window) return;
+
+    this._resetSkipTaskbarProperty(window);
+
+    if (!this._settings.get_boolean("skip-taskbar")) return;
+
+    Object.defineProperty(window, "skip_taskbar", {
+      get() {
+        return true;
+      },
+      configurable: true,
+    });
+  }
+
+  _resetSkipTaskbarProperty(window) {
+    if (!window) return;
+
+    try {
+      delete window.skip_taskbar;
+    } catch (error) {
+      console.error(`Warp Visor: failed to reset skip_taskbar: ${error}`);
+    }
   }
 
   _isUsableWindow(window) {

@@ -17,6 +17,7 @@ position, focus, and hide Warp.
 - Default visor height is 50% of the monitor work area.
 - Warp can be kept above other windows.
 - Warp can be shown on all workspaces.
+- Warp can be hidden from overview mode and Alt+Tab.
 - Per-placement geometry is saved when you manually resize the visor.
 - Maximized or full-work-area windows are not saved as visor geometry.
 
@@ -80,6 +81,9 @@ gsettings set org.gnome.shell.extensions.warp-visor toggle-top-keybinding "['<Sh
 
 GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
 gsettings set org.gnome.shell.extensions.warp-visor toggle-bottom-keybinding "['<Shift><Alt>B']"
+
+GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
+gsettings set org.gnome.shell.extensions.warp-visor skip-taskbar true
 ```
 
 Reset saved geometry:
