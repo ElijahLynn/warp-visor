@@ -8,6 +8,8 @@ description: >-
 
 # Warp Visor dev loop
 
+This file lives in the **warp-visor git repository** at `.cursor/skills/warp-visor-dev/SKILL.md`. Clone or pull the repo so Cursor loads the project skill; do not maintain a separate copy under `~/.cursor/skills`.
+
 Use the project script. Do not hand-roll `gnome-shell --devkit` on the host session.
 
 ## Commands
