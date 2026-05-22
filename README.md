@@ -156,7 +156,7 @@ warp-visor-dev host-restore # host: Warp app id + re-enable extension
 
 Run `warp-visor-dev` with no arguments for full command list.
 
-In Cursor, ask the agent to use **`/warp-visor-dev`** or the **warp-visor-dev** skill so it follows this flow. The skill is versioned in this repository at `.cursor/skills/warp-visor-dev/SKILL.md` (not a personal `~/.cursor/skills` copy). After nested and host behavior are confirmed working, that skill requires updating this README, the skill, and committing the changes to the repo.
+In Cursor, ask the agent to use **`/warp-visor-dev`** or the **warp-visor-dev** skill so it follows this flow. The skill is versioned in this repository at `.cursor/skills/warp-visor-dev/SKILL.md` (not a personal `~/.cursor/skills` copy). After nested and host behavior are confirmed working, that skill requires updating this README, the skill, committing, and pushing to the remote repo.
 
 ### GNOME Wayland development loop
 

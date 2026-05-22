@@ -63,14 +63,14 @@ Run this only after the user or agent confirms nested and/or host testing works.
 
 Do not update docs for unverified experiments.
 
-### 2. Commit to the repository
+### 2. Commit and push to the repository
 
 After docs are in sync, **create a git commit** with all related changes (extension, script, skill, README, tests, schemas, `MEMORY.md`). Do not commit unrelated files.
 
 - Use a clear message focused on **why** (e.g. dev loop helper, geometry reset, full-width visor).
 - Follow the repo’s commit style; use a HEREDOC for the message.
-- Do not push unless the user asks.
-- If the user said work is confirmed but did not ask to commit, **ask once** whether to commit; if they already asked to land or finish the dev task, commit without re-asking.
+- Then **push to `origin`** (e.g. `git push origin main`) so the skill and other updates are on the remote repo, not only on the local machine.
+- If the user said work is confirmed but did not ask to land changes, **ask once** whether to commit and push; if they already asked to finish the dev task (or said yes to commit), commit and push without re-asking.
 
 Checklist before marking the task done:
 
@@ -79,6 +79,7 @@ Checklist before marking the task done:
 - [ ] Host shortcuts and Shift+Alt+R verified (or user confirmed)
 - [ ] No references to `warp-visor-test` remain in the repo
 - [ ] Changes committed to git (or user declined)
+- [ ] Commits pushed to `origin` (or user declined)
 
 ## Details
 

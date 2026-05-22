@@ -16,7 +16,7 @@ exit
 warp-visor-dev host-restore
 ```
 
-After confirmed working: sync script, README, skill, this file, then commit (see skill **Finish and land**).
+After confirmed working: sync script, README, skill, this file, then commit and push (see skill **Finish and land**).
 
 Nested target: `org.gnome.Console.desktop`. Host daily: `dev.warp.Warp.desktop`.
 
