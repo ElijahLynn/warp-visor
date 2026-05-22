@@ -13,12 +13,14 @@ position, focus, and hide Warp.
 
 - `<Shift><Alt>T` shows or toggles a top visor.
 - `<Shift><Alt>B` shows or toggles a bottom visor.
+- `<Shift><Alt>R` resets saved visor geometry to defaults.
 - Pressing the active visor shortcut again minimizes Warp out of view.
 - Default visor height is 50% of the monitor work area.
 - Warp can be kept above other windows.
 - Warp can be shown on all workspaces.
 - Warp can be hidden from overview mode and Alt+Tab.
-- Per-placement geometry is saved when you manually resize the visor.
+- Per-placement height is remembered when you manually resize the visor; width
+  always spans the monitor work area.
 - Maximized or full-work-area windows are not saved as visor geometry.
 
 ## Target Environment
@@ -47,12 +49,18 @@ make install
 Enable it:
 
 ```sh
+gsettings set org.gnome.shell disable-user-extensions false
 gnome-extensions enable warp-visor@local
+gnome-extensions info warp-visor@local
 ```
 
-On GNOME Wayland, existing extension JavaScript is loaded inside the running
-Shell process. After changing extension code, log out and back in, or use the
-development workflow below.
+`info` should report `Enabled: Yes` and `State: ACTIVE`. If shortcuts do nothing
+after a Shell crash, GNOME may have set `disable-user-extensions` to `true` (see
+Troubleshooting).
+
+On GNOME Wayland, extension JavaScript loads inside the running Shell process.
+After changing extension code on the **host**, log out and back in, or use the
+nested development workflow below.
 
 ## Configure
 
@@ -88,6 +96,14 @@ gsettings set org.gnome.shell.extensions.warp-visor skip-taskbar true
 
 Reset saved geometry:
 
+- Press `<Shift><Alt>R` while the extension is enabled.
+- Or open **Extensions → Warp Visor → Settings** and click **Reset** under Geometry.
+
+Those paths clear saved geometry and immediately re-apply the default size to a
+visible visor. Clearing geometry with `gsettings` alone also works, but the
+running Shell only picks it up when the visor is shown or when the geometry
+keys change.
+
 ```sh
 GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
 gsettings set org.gnome.shell.extensions.warp-visor top-geometry ''
@@ -116,125 +132,222 @@ Install local changes:
 make install
 ```
 
-### GNOME Wayland Development Loop
+### Quick dev loop (`warp-visor-dev`)
 
-GNOME Shell extensions run inside the GNOME Shell process. On Wayland, the
-host Shell process cannot be restarted in place, so extension developers should
-test in a nested development Shell.
-
-For GNOME 49 and later:
+Install the helper once (adds `warp-visor-dev` to `~/.local/bin`):
 
 ```sh
-dbus-run-session -- bash
+make install-dev-cmd
 ```
 
-On Arch Linux, this requires:
+Then:
+
+```sh
+warp-visor-dev host-prep    # host: disable extension, check devkit
+warp-visor-dev enter        # host: opens isolated dbus-run-session
+warp-visor-dev start        # inside enter: install, nested Shell, enable
+# wait ~30-60s for a "Mutter Development Kit" window (nested GNOME desktop inside it)
+# click inside that window, then Shift+Alt+T / B / R (GNOME Console target)
+warp-visor-dev reload       # inside enter: after code changes
+warp-visor-dev enable       # inside enter: if enable failed during start/reload
+exit                         # leave nested session
+warp-visor-dev host-restore # host: Warp app id + re-enable extension
+```
+
+Run `warp-visor-dev` with no arguments for full command list.
+
+In Cursor, ask the agent to use **`/warp-visor-dev`** or the **warp-visor-dev** skill so it follows this flow. After nested and host behavior are confirmed working, that skill requires updating this README, the skill, and committing the changes to the repo.
+
+### GNOME Wayland development loop
+
+GNOME Shell extensions run inside the GNOME Shell process. On Wayland the host
+Shell cannot be restarted in place, so use a **nested development Shell** in an
+isolated D-Bus session.
+
+#### Two different “terminals”
+
+| Role | What to use | Notes |
+|------|-------------|--------|
+| **Command terminal** | Any app (Warp, GNOME Terminal, etc.) | Only runs `dbus-run-session`, `make install`, `gnome-shell --devkit`, `gnome-extensions`. The app you type in does not matter. |
+| **Visor target app** | **GNOME Console** in nested testing | Set `warp-app-id` to `org.gnome.Console.desktop` inside the nested session. Do not use Warp as the visor target in nested devkit—it is heavier and more likely to misbehave. |
+| **Visor target app** | **Warp** on the host | Default `dev.warp.Warp.desktop` for daily use after you log out and verify on the real desktop. |
+
+#### Safety rules
+
+- Run `gnome-shell --devkit` and `gnome-extensions` **only** inside
+  `dbus-run-session`, never in a normal host terminal. A second compositor on the
+  host session can crash or log you out.
+- On the **host**, run `gnome-extensions disable warp-visor@local` before nested
+  testing so `<Shift><Alt>T/B/R` are not handled twice.
+- After `make install` on the **host**, **log out and back in** before relying on
+  Warp Visor there. Do not run `gnome-extensions enable` on the host right after
+  `make install` without logging out (see Troubleshooting).
+- On Arch, install `mutter-devkit`. Optional launcher: `/usr/lib/mutter-devkit`.
 
 ```sh
 sudo pacman -S mutter-devkit
 ```
 
-Inside the `dbus-run-session` shell, start the nested Shell and enable the
-extension from that same D-Bus session:
+Set `GSETTINGS_SCHEMA_DIR` for nested `gsettings` commands:
 
 ```sh
-make install
-gnome-shell --devkit --wayland &
-gnome-extensions enable warp-visor@local
-gnome-extensions info warp-visor@local
+export GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas"
 ```
 
-The nested Shell opens in a separate window. Focus that window, then test
-there. If you need a stand-in app instead of the real Warp instance, GNOME
-Console works well:
+#### 1. Prepare the host (normal session)
 
-```sh
-GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
-gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'org.gnome.Console.desktop'
-```
-
-Change it back to real Warp with:
-
-```sh
-GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
-gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'dev.warp.Warp.desktop'
-```
-
-Disable the host copy while testing in the nested Shell so the host session
-does not grab the same shortcuts:
+Run in any terminal on your **real desktop**:
 
 ```sh
 gnome-extensions disable warp-visor@local
 ```
 
-When you are done testing, re-enable the host copy:
+#### 2. Start nested session
 
 ```sh
-gnome-extensions enable warp-visor@local
+dbus-run-session -- bash
 ```
 
-The development loop is:
+Everything below runs **inside** that shell only.
+
+#### 3. Install, point at GNOME Console, start nested Shell
+
+```sh
+cd /path/to/warp-visor
+make install
+
+gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'org.gnome.Console.desktop'
+
+gnome-shell --devkit --wayland &
+sleep 2
+gnome-extensions enable warp-visor@local
+gnome-extensions info warp-visor@local
+```
+
+`gnome-extensions info` must show `Enabled: Yes` and `State: ACTIVE`.
+
+After `warp-visor-dev start`, a separate window titled **Mutter Development Kit**
+usually appears within **30–60 seconds**. It contains a full nested GNOME desktop
+(top bar, wallpaper, Activities)—not a terminal and not your host desktop. **Click
+inside that window**, wait until the desktop looks ready, then press
+`<Shift><Alt>T`, `<Shift><Alt>B`, and `<Shift><Alt+R>` there—not on the host
+desktop.
+
+![Nested Mutter Development Kit window](docs/nested-mutter-devkit.png)
+
+Host `gnome-extensions` / `gsettings` in a normal terminal do **not** affect the
+nested session. The nested session has its own D-Bus and settings.
+
+#### 4. Iterate on code
+
+From the same `dbus-run-session` shell:
 
 ```sh
 make install
-# Stop the nested Shell job:
-jobs
+jobs          # find the nested gnome-shell job, often %1
 kill %1
-
-# Then start it again from the dbus-run-session shell:
 gnome-shell --devkit --wayland &
+sleep 2
 gnome-extensions enable warp-visor@local
 ```
 
-Watch logs from the terminal that launched the nested Shell. For the host
-session, this is also useful:
+Watch logs in the terminal that launched nested Shell:
 
 ```sh
 journalctl --user -f -o cat
 ```
 
-### Agent Notes
+Geometry debug (after toggling in nested Shell): `/tmp/warp-visor-geometry.log`
 
-For nested GNOME Shell testing, use GNOME Console as the target app unless the
-user explicitly wants real Warp:
+#### 5. Tear down nested testing
+
+In the `dbus-run-session` shell:
 
 ```sh
-GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
-gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'org.gnome.Console.desktop'
+kill %1       # stop nested gnome-shell
+exit          # leave isolated D-Bus session
 ```
 
-Change it back to real Warp with:
+#### 6. Restore the host for daily Warp use
+
+Back in your **normal** session:
 
 ```sh
+gsettings set org.gnome.shell disable-user-extensions false
+gnome-extensions enable warp-visor@local
+gnome-extensions info warp-visor@local
+
 GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
 gsettings set org.gnome.shell.extensions.warp-visor warp-app-id 'dev.warp.Warp.desktop'
 ```
 
-Host `gnome-extensions` commands do not prove nested-shell extension state. The
-nested Shell has its own session; enable Warp Visor inside the nested Extensions
-app or run `gnome-extensions enable warp-visor@local` inside a
-`dbus-run-session -- bash` shell. Watch the terminal that launched
-`gnome-shell --devkit --wayland`.
-
-During nested testing, disable the host copy with
-`gnome-extensions disable warp-visor@local`; when finished, re-enable it with
-`gnome-extensions enable warp-visor@local`.
+Log out and back in if you changed extension code or schemas on the host.
 
 ## Troubleshooting
 
-If a shortcut launches on the host instead of the nested Shell, verify that the
-host copy is disabled while testing:
+### Host session logged out after nested-shell commands
+
+If the whole desktop restarted, check the previous session log:
+
+```sh
+journalctl --user -b -1 --since '10 min ago' | rg 'warp-visor|gnome-shell.*dumped core|current-placement'
+```
+
+A common failure mode is reloading Warp Visor on the **host** right after
+`make install` without logging out. The host Shell may still have an old settings
+schema cached while the new `extension.js` expects newer keys; accessing a
+missing key aborts GNOME Shell and ends the session.
+
+Recovery:
+
+1. Log back in.
+2. Run `make install` again.
+3. GNOME may have turned off **all** user extensions after the crash. Check and
+   re-enable:
+
+```sh
+gsettings get org.gnome.shell disable-user-extensions
+gsettings set org.gnome.shell disable-user-extensions false
+gnome-extensions enable warp-visor@local
+gnome-extensions info warp-visor@local
+```
+
+`gnome-extensions info` should show `Enabled: Yes` and `State: ACTIVE`. If it
+shows `Enabled: No` while `disable-user-extensions` is still `true`, shortcuts
+will do nothing.
+
+4. Log out and back in once more if you changed extension code or schemas.
+
+For nested testing, use only the `dbus-run-session` shell for devkit and
+`gnome-extensions` commands. Re-enable the host copy when finished:
+
+```sh
+gsettings set org.gnome.shell disable-user-extensions false
+gnome-extensions enable warp-visor@local
+```
+
+### Shortcuts do nothing after login
+
+GNOME often disables all user extensions after a Shell crash:
+
+```sh
+gsettings get org.gnome.shell disable-user-extensions
+gsettings set org.gnome.shell disable-user-extensions false
+gnome-extensions enable warp-visor@local
+```
+
+### Shortcut fires on host during nested testing
+
+Disable Warp Visor on the host before starting nested Shell:
 
 ```sh
 gnome-extensions disable warp-visor@local
 ```
 
-If a visor unexpectedly opens full height, clear saved geometry:
-
-```sh
-GSETTINGS_SCHEMA_DIR="$HOME/.local/share/gnome-shell/extensions/warp-visor@local/schemas" \
-gsettings set org.gnome.shell.extensions.warp-visor top-geometry ''
-```
+If a visor unexpectedly opens full height or keeps an old size, press
+`<Shift><Alt>R` or use **Reset Saved Geometry** in the extension settings. If the
+shortcut does nothing after an update, run `make install` and log out and back
+in so GNOME Shell reloads the extension.
 
 If GNOME reports an old JavaScript error after you changed the source, the host
 Shell is probably still running cached extension code. Log out and back in, or

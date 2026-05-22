@@ -11,6 +11,11 @@
       <summary>Toggle bottom visor</summary>
       <description>Keyboard shortcut for showing, focusing, or hiding the bottom Warp visor.</description>
     </key>
+    <key name="reset-geometry-keybinding" type="as">
+      <default><![CDATA[['<Shift><Alt>R']]]></default>
+      <summary>Reset saved visor geometry</summary>
+      <description>Keyboard shortcut for clearing saved top and bottom geometry and restoring defaults.</description>
+    </key>
     <key name="warp-app-id" type="s">
       <default>'dev.warp.Warp.desktop'</default>
       <summary>Warp desktop app id</summary>

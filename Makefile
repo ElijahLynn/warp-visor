@@ -2,7 +2,7 @@ UUID := warp-visor@local
 EXTENSION_DIR := $(CURDIR)/$(UUID)
 INSTALL_DIR := $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
-.PHONY: all test schemas install package clean
+.PHONY: all test schemas install install-dev-cmd package clean
 
 all: test
 
@@ -15,6 +15,12 @@ test: schemas
 install: schemas
 	mkdir -p $(INSTALL_DIR)
 	cp -r $(EXTENSION_DIR)/* $(INSTALL_DIR)/
+
+install-dev-cmd:
+	chmod +x $(CURDIR)/scripts/warp-visor-dev
+	mkdir -p $(HOME)/.local/bin
+	ln -sf $(CURDIR)/scripts/warp-visor-dev $(HOME)/.local/bin/warp-visor-dev
+	rm -f $(HOME)/.local/bin/warp-visor-test
 
 package: schemas
 	gnome-extensions pack -f -o $(CURDIR) \

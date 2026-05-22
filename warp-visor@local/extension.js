@@ -22,6 +22,20 @@ const POST_LAUNCH_REFIT_DELAY_MS = 200;
 const PROGRAMMATIC_GEOMETRY_SAVE_SUPPRESSION_MS = 1000;
 
 export default class WarpVisorExtension extends Extension {
+  _hasSettingsKey(name) {
+    return Boolean(this._settings?.settings_schema?.has_key(name));
+  }
+
+  _getStringSetting(name, fallback = "") {
+    if (!this._hasSettingsKey(name)) return fallback;
+    return this._settings.get_string(name);
+  }
+
+  _setStringSetting(name, value) {
+    if (!this._hasSettingsKey(name)) return;
+    this._settings.set_string(name, value);
+  }
+
   enable() {
     this._settings = this.getSettings();
     this._appSystem = Shell.AppSystem.get_default();
@@ -34,6 +48,7 @@ export default class WarpVisorExtension extends Extension {
     this._appWindowsChangedId = 0;
     this._settingsSignals = [];
     this._hiddenActorOpacity = null;
+    this._hiddenActorWasVisible = null;
     this._app = null;
     this._applyingGeometry = false;
     this._suppressGeometrySaveUntilUs = 0;
@@ -43,6 +58,22 @@ export default class WarpVisorExtension extends Extension {
         this._configureSkipTaskbarProperty();
       })
     );
+
+    if (this._hasSettingsKey("top-geometry")) {
+      this._settingsSignals.push(
+        this._settings.connect("changed::top-geometry", () => {
+          this._onSavedGeometryChanged(PLACEMENT_TOP);
+        })
+      );
+    }
+
+    if (this._hasSettingsKey("bottom-geometry")) {
+      this._settingsSignals.push(
+        this._settings.connect("changed::bottom-geometry", () => {
+          this._onSavedGeometryChanged(PLACEMENT_BOTTOM);
+        })
+      );
+    }
 
     Main.wm.addKeybinding(
       "toggle-top-keybinding",
@@ -59,11 +90,22 @@ export default class WarpVisorExtension extends Extension {
       Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
       () => this._handlePlacementHotkey(PLACEMENT_BOTTOM)
     );
+
+    if (this._hasSettingsKey("reset-geometry-keybinding")) {
+      Main.wm.addKeybinding(
+        "reset-geometry-keybinding",
+        this._settings,
+        Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+        () => this._handleResetGeometryHotkey()
+      );
+    }
   }
 
   disable() {
     Main.wm.removeKeybinding("toggle-top-keybinding");
     Main.wm.removeKeybinding("toggle-bottom-keybinding");
+    Main.wm.removeKeybinding("reset-geometry-keybinding");
     this._clearStartupWatch();
     this._clearPostLaunchRefit();
     this._clearPendingReveal();
@@ -84,9 +126,56 @@ export default class WarpVisorExtension extends Extension {
     }
   }
 
+  _handleResetGeometryHotkey() {
+    try {
+      this._resetSavedGeometry(true);
+    } catch (error) {
+      console.error(`Warp Visor: ${error}`);
+      Main.notify(_("Warp Visor"), String(error));
+    }
+  }
+
+  _resetSavedGeometry(notify = false) {
+    this._clearGeometrySave();
+    this._suppressGeometrySaveUntilUs =
+      GLib.get_monotonic_time() + PROGRAMMATIC_GEOMETRY_SAVE_SUPPRESSION_MS * 1000;
+    this._setStringSetting("top-geometry", "");
+    this._setStringSetting("bottom-geometry", "");
+
+    const placement = this._getStringSetting("current-placement", PLACEMENT_HIDDEN);
+    const window = this._findWarpWindow();
+    if (
+      window &&
+      !this._isWindowHidden(window) &&
+      (placement === PLACEMENT_TOP || placement === PLACEMENT_BOTTOM)
+    ) {
+      this._unmaximizeWindow(window);
+      this._applyGeometry(window, placement);
+      Main.activateWindow(window);
+    }
+
+    if (notify) {
+      Main.notify(_("Warp Visor"), _("Saved visor geometry reset."));
+    }
+  }
+
+  _onSavedGeometryChanged(placement) {
+    const currentPlacement = this._getStringSetting("current-placement", PLACEMENT_HIDDEN);
+    if (currentPlacement !== placement) return;
+
+    const window = this._window;
+    if (!window || !this._isUsableWindow(window) || this._isWindowHidden(window)) {
+      return;
+    }
+
+    this._clearGeometrySave();
+    this._unmaximizeWindow(window);
+    this._applyGeometry(window, placement);
+  }
+
   _togglePlacement(placement) {
     const window = this._findWarpWindow();
-    const currentPlacement = this._settings.get_string("current-placement");
+    const currentPlacement = this._getStringSetting("current-placement", PLACEMENT_HIDDEN);
 
     if (
       window &&
@@ -95,7 +184,7 @@ export default class WarpVisorExtension extends Extension {
     ) {
       this._saveCurrentGeometryNow();
       this._hideWindow(window);
-      this._settings.set_string("current-placement", PLACEMENT_HIDDEN);
+      this._setStringSetting("current-placement", PLACEMENT_HIDDEN);
       return;
     }
 
@@ -188,7 +277,7 @@ export default class WarpVisorExtension extends Extension {
 
     this._unmaximizeWindow(window);
     this._applyGeometry(window, placement);
-    this._settings.set_string("current-placement", placement);
+    this._setStringSetting("current-placement", placement);
 
     if (typeof window.unminimize === "function" && window.minimized) {
       this._pendingRevealId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
@@ -202,7 +291,7 @@ export default class WarpVisorExtension extends Extension {
       return;
     }
 
-    this._restoreWindowOpacity(window);
+    this._restoreWindowActor(window);
     Main.activateWindow(window);
     this._queuePostLaunchRefit(window, placement);
   }
@@ -237,7 +326,7 @@ export default class WarpVisorExtension extends Extension {
     Main.activateWindow(window);
 
     GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-      this._restoreWindowOpacity(window);
+      this._restoreWindowActor(window);
 
       if (this._window === window && this._isUsableWindow(window)) {
         this._queuePostLaunchRefit(window, placement);
@@ -252,15 +341,24 @@ export default class WarpVisorExtension extends Extension {
     if (!actor) return;
 
     this._hiddenActorOpacity = actor.opacity;
+    this._hiddenActorWasVisible = actor.visible;
     actor.opacity = 0;
+    if (typeof actor.hide === "function") {
+      actor.hide();
+    }
   }
 
-  _restoreWindowOpacity(window) {
+  _restoreWindowActor(window) {
     const actor = window.get_compositor_private?.();
     if (!actor) return;
 
     actor.opacity = this._hiddenActorOpacity ?? 255;
+    if (this._hiddenActorWasVisible !== false && typeof actor.show === "function") {
+      actor.show();
+    }
+
     this._hiddenActorOpacity = null;
+    this._hiddenActorWasVisible = null;
   }
 
   _unmaximizeWindow(window) {
@@ -275,7 +373,7 @@ export default class WarpVisorExtension extends Extension {
     const monitor = this._getTargetMonitor(window);
     const workArea = window.get_work_area_for_monitor(monitor);
     const savedGeometry = parseGeometry(
-      this._settings.get_string(keyForPlacement(placement))
+      this._getStringSetting(keyForPlacement(placement))
     );
     const defaultGeometry = computeDefaultGeometry(
       workArea,
@@ -346,7 +444,7 @@ export default class WarpVisorExtension extends Extension {
       window.connect("position-changed", () => this._queueGeometrySave()),
       window.connect("size-changed", () => this._queueGeometrySave()),
       window.connect("unmanaged", () => {
-        this._settings.set_string("current-placement", PLACEMENT_HIDDEN);
+        this._setStringSetting("current-placement", PLACEMENT_HIDDEN);
         this._disconnectWindow();
       }),
     ];
@@ -431,7 +529,7 @@ export default class WarpVisorExtension extends Extension {
   _saveCurrentGeometryNow() {
     if (!this._window || this._isWindowHidden(this._window)) return;
 
-    const placement = this._settings.get_string("current-placement");
+    const placement = this._getStringSetting("current-placement", PLACEMENT_HIDDEN);
     if (placement !== PLACEMENT_TOP && placement !== PLACEMENT_BOTTOM) return;
 
     const frame = this._window.get_frame_rect();
@@ -443,10 +541,7 @@ export default class WarpVisorExtension extends Extension {
       return;
     }
 
-    this._settings.set_string(
-      keyForPlacement(placement),
-      serializeGeometry(frame)
-    );
+    this._setStringSetting(keyForPlacement(placement), serializeGeometry(frame));
   }
 
   _rectCoversWorkArea(rect, workArea) {

@@ -1,5 +1,6 @@
 import Adw from "gi://Adw";
 import Gio from "gi://Gio";
+import Gtk from "gi://Gtk";
 
 import {
   ExtensionPreferences,
@@ -34,6 +35,28 @@ export default class WarpVisorPreferences extends ExtensionPreferences {
       "active",
       Gio.SettingsBindFlags.DEFAULT
     );
+
+    const geometryGroup = new Adw.PreferencesGroup({
+      title: _("Geometry"),
+    });
+    page.add(geometryGroup);
+
+    const resetGeometryRow = new Adw.ActionRow({
+      title: _("Reset Saved Geometry"),
+      subtitle: _(
+        "Clear saved top and bottom sizes and restore the default visor height."
+      ),
+    });
+    const resetGeometryButton = new Gtk.Button({
+      label: _("Reset"),
+      valign: Gtk.Align.CENTER,
+    });
+    resetGeometryButton.connect("clicked", () => {
+      settings.set_string("top-geometry", "");
+      settings.set_string("bottom-geometry", "");
+    });
+    resetGeometryRow.add_suffix(resetGeometryButton);
+    geometryGroup.add(resetGeometryRow);
 
     window.add(page);
   }

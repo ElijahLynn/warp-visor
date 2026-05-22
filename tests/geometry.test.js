@@ -49,7 +49,7 @@ assertEqual(
     workArea,
     PLACEMENT_TOP
   ),
-  { x: 20, y: 32, width: 1200, height: 384 },
+  { x: 0, y: 32, width: 1920, height: 384 },
   "anchor saved top geometry to work area top"
 );
 
@@ -59,8 +59,18 @@ assertEqual(
     workArea,
     PLACEMENT_BOTTOM
   ),
-  { x: 20, y: 696, width: 1200, height: 384 },
+  { x: 0, y: 696, width: 1920, height: 384 },
   "anchor saved bottom geometry to work area bottom"
+);
+
+assertEqual(
+  anchorGeometryToPlacement(
+    { x: 320, y: 32, width: 640, height: 608 },
+    workArea,
+    PLACEMENT_TOP
+  ),
+  { x: 0, y: 32, width: 1920, height: 608 },
+  "saved narrow width expands to full work area width"
 );
 
 const encoded = serializeGeometry({ x: 1.2, y: 2.7, width: 300.2, height: 400.8 });

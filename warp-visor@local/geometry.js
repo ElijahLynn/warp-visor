@@ -34,14 +34,17 @@ export function clampGeometry(geometry, workArea) {
 
 export function anchorGeometryToPlacement(geometry, workArea, placement) {
   const clamped = clampGeometry(geometry, workArea);
+  const height = clampNumber(clamped.height, 1, workArea.height);
   const y =
     placement === PLACEMENT_BOTTOM
-      ? workArea.y + workArea.height - clamped.height
+      ? workArea.y + workArea.height - height
       : workArea.y;
 
   return {
-    ...clamped,
+    x: workArea.x,
     y,
+    width: workArea.width,
+    height,
   };
 }
 

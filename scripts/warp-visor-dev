@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# Warp Visor nested GNOME Shell dev loop. See README.md and: warp-visor-dev help
+set -euo pipefail
+
+CMD="warp-visor-dev"
+UUID="warp-visor@local"
+# Resolve real path when invoked via ~/.local/bin symlink
+_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(cd "$(dirname "${_SCRIPT}")/.." && pwd)"
+EXTENSION_SCHEMAS="${REPO_ROOT}/warp-visor@local/schemas"
+NESTED_PID_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/warp-visor-nested-shell.pid"
+NESTED_WAYLAND_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/warp-visor-nested-wayland"
+NESTED_SHELL_READY_TIMEOUT_SEC=90
+CONSOLE_APP_ID="org.gnome.Console.desktop"
+WARP_APP_ID="dev.warp.Warp.desktop"
+
+export GSETTINGS_SCHEMA_DIR="${EXTENSION_SCHEMAS}"
+
+usage() {
+  cat <<EOF
+Warp Visor dev loop
+
+  ${CMD}              Show this help
+  ${CMD} host-prep    Disable extension on host (run on real desktop)
+  ${CMD} enter        Open isolated dbus-run-session for nested testing
+  ${CMD} start        Install, launch nested Shell, enable extension (inside enter)
+  ${CMD} reload       Reinstall and restart nested Shell (inside enter)
+  ${CMD} enable       Enable extension once Mutter window is up (inside enter)
+  ${CMD} stop         Stop nested Shell (inside enter)
+  ${CMD} host-restore Re-enable extension on host for daily Warp use
+
+Typical flow:
+
+  ${CMD} host-prep
+  ${CMD} enter        # new shell — run start/reload/stop there
+  ${CMD} start
+  # test in nested Shell window: Shift+Alt+T / B / R
+  ${CMD} reload       # after code changes
+  exit                # leave nested session
+  ${CMD} host-restore
+
+Install command to PATH:
+
+  make install-dev-cmd
+
+EOF
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "${CMD}: missing command: $1" >&2
+    exit 1
+  fi
+}
+
+require_nested() {
+  if [[ "${WARP_VISOR_NESTED:-}" != "1" ]]; then
+    echo "${CMD}: run this inside a nested session: ${CMD} enter" >&2
+    exit 1
+  fi
+}
+
+require_host() {
+  if [[ "${WARP_VISOR_NESTED:-}" == "1" ]]; then
+    echo "${CMD}: run this on the host desktop, not inside enter" >&2
+    exit 1
+  fi
+}
+
+gsettings_ext() {
+  # gsettings <subcommand> <schema> <key> [value...]
+  local subcommand=$1
+  shift
+  gsettings "${subcommand}" org.gnome.shell.extensions.warp-visor "$@"
+}
+
+_shell_on_session_bus() {
+  busctl --user list 2>/dev/null | rg -q '^org\.gnome\.Shell '
+}
+
+stop_nested_shell() {
+  if [[ -f "${NESTED_PID_FILE}" ]]; then
+    local pid
+    pid="$(cat "${NESTED_PID_FILE}")"
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      echo "Stopping nested gnome-shell (pid ${pid})..."
+      local i
+      for i in $(seq 1 30); do
+        if ! kill -0 "${pid}" 2>/dev/null; then
+          break
+        fi
+        sleep 0.5
+      done
+      if kill -0 "${pid}" 2>/dev/null; then
+        kill -9 "${pid}" 2>/dev/null || true
+        sleep 1
+      fi
+    fi
+    rm -f "${NESTED_PID_FILE}"
+  fi
+
+  if _shell_on_session_bus; then
+    echo "Waiting for org.gnome.Shell to leave the nested D-Bus session..."
+    local i
+    for i in $(seq 1 40); do
+      if ! _shell_on_session_bus; then
+        break
+      fi
+      sleep 0.5
+    done
+    if _shell_on_session_bus; then
+      echo "${CMD}: warning: org.gnome.Shell still on session bus; reload may fail" >&2
+      echo "Close the Mutter Development Kit window, run: ${CMD} stop" >&2
+      sleep 2
+    fi
+  fi
+
+  rm -f "${NESTED_WAYLAND_FILE}"
+}
+
+detect_nested_wayland_display() {
+  local name
+  name="$(find "${XDG_RUNTIME_DIR}" -maxdepth 1 -name 'wayland-*' ! -name '*.lock' -printf '%f\n' 2>/dev/null |
+    sort -V | tail -1)"
+  if [[ -n "${name}" && -S "${XDG_RUNTIME_DIR}/${name}" ]]; then
+    echo "${name}"
+    return 0
+  fi
+  return 1
+}
+
+wait_for_nested_shell_ready() {
+  local i
+  echo "Waiting for nested compositor (up to ${NESTED_SHELL_READY_TIMEOUT_SEC}s)..."
+  for i in $(seq 1 "${NESTED_SHELL_READY_TIMEOUT_SEC}"); do
+    if detect_nested_wayland_display >/dev/null; then
+      local wayland
+      wayland="$(detect_nested_wayland_display)"
+      echo "${wayland}" >"${NESTED_WAYLAND_FILE}"
+      if _shell_on_session_bus; then
+        echo "Nested Shell ready (${wayland}, org.gnome.Shell on D-Bus)."
+        return 0
+      fi
+    fi
+    if (( i % 10 == 0 )); then
+      echo "  ...still waiting (${i}s)"
+    fi
+    sleep 1
+  done
+  echo "${CMD}: timed out waiting for nested Shell" >&2
+  return 1
+}
+
+enable_nested_extension() {
+  local wayland
+  if [[ -f "${NESTED_WAYLAND_FILE}" ]]; then
+    wayland="$(cat "${NESTED_WAYLAND_FILE}")"
+  elif ! wayland="$(detect_nested_wayland_display)"; then
+    echo "${CMD}: no nested Wayland display found; is Mutter Development Kit running?" >&2
+    return 1
+  fi
+
+  export WAYLAND_DISPLAY="${wayland}"
+  export XDG_SESSION_TYPE=wayland
+  export GDK_BACKEND=wayland
+  unset DISPLAY
+
+  if ! _shell_on_session_bus; then
+    echo "${CMD}: org.gnome.Shell not on D-Bus yet" >&2
+    return 1
+  fi
+
+  gnome-extensions enable "${UUID}"
+}
+
+cmd_host_prep() {
+  require_host
+  require_cmd gnome-extensions
+
+  if ! command -v gnome-shell >/dev/null 2>&1; then
+    echo "${CMD}: gnome-shell not found" >&2
+    exit 1
+  fi
+
+  if ! gnome-shell --version 2>/dev/null | grep -qE 'GNOME Shell 4[89]|GNOME Shell 50'; then
+    echo "${CMD}: warning: this project targets GNOME Shell 50" >&2
+  fi
+
+  if ! command -v mutter-devkit >/dev/null 2>&1 && [[ ! -x /usr/lib/mutter-devkit ]]; then
+    echo "${CMD}: install mutter-devkit (Arch: sudo pacman -S mutter-devkit)" >&2
+    exit 1
+  fi
+
+  gnome-extensions disable "${UUID}" 2>/dev/null || true
+  echo "Host: disabled ${UUID}"
+  echo "Next: ${CMD} enter"
+}
+
+cmd_enter() {
+  require_host
+  require_cmd dbus-run-session
+  require_cmd gnome-shell
+
+  export WARP_VISOR_REPO="${REPO_ROOT}"
+  export WARP_VISOR_NESTED=1
+  export GSETTINGS_SCHEMA_DIR="${EXTENSION_SCHEMAS}"
+  export PATH="${REPO_ROOT}/scripts:${PATH}"
+
+  echo "Starting isolated D-Bus session for Warp Visor nested testing..."
+  echo "Inside that shell: ${CMD} start"
+  exec dbus-run-session -- bash -c "
+    export WARP_VISOR_REPO='${REPO_ROOT}'
+    export WARP_VISOR_NESTED=1
+    export GSETTINGS_SCHEMA_DIR='${EXTENSION_SCHEMAS}'
+    export PATH='${REPO_ROOT}/scripts':\"\${PATH}\"
+    cd '${REPO_ROOT}'
+    echo ''
+    echo '[warp-visor nested] Run: ${CMD} start'
+    echo '[warp-visor nested] A \"Mutter Development Kit\" window appears in ~30-60s (GNOME desktop inside it)'
+    echo '[warp-visor nested] Focus that window, then use Shift+Alt+T / B / R'
+    echo ''
+    exec bash
+  "
+}
+
+cmd_start() {
+  require_nested
+  require_cmd gnome-extensions
+  require_cmd make
+
+  cd "${REPO_ROOT}"
+  stop_nested_shell
+
+  make install
+  gsettings_ext set warp-app-id "${CONSOLE_APP_ID}"
+  gsettings_ext set top-geometry ""
+  gsettings_ext set bottom-geometry ""
+
+  echo "Starting nested Shell (devkit)..."
+  echo "Expect a separate window titled \"Mutter Development Kit\" in about 30-60 seconds."
+  echo "It shows a full GNOME desktop (top bar, wallpaper) inside that window — not your host desktop."
+
+  gnome-shell --devkit --wayland &
+  local pid=$!
+  echo "${pid}" >"${NESTED_PID_FILE}"
+
+  if ! wait_for_nested_shell_ready; then
+    echo "Mutter window may still appear. When it does, run: ${CMD} enable"
+    return 1
+  fi
+
+  if ! enable_nested_extension; then
+    echo "When the Mutter Development Kit window is ready, run: ${CMD} enable"
+    return 1
+  fi
+
+  _print_extension_status
+  echo ""
+  echo "Click inside the Mutter Development Kit window, then test Shift+Alt+T / B / R"
+  echo "After edits: ${CMD} reload"
+}
+
+_print_extension_status() {
+  echo ""
+  gnome-extensions info "${UUID}" 2>/dev/null |
+    rg -i '^(warp-visor|  Name|  Enabled|  State)' || gnome-extensions info "${UUID}" 2>/dev/null || true
+}
+
+cmd_enable() {
+  require_nested
+  require_cmd gnome-extensions
+
+  if ! wait_for_nested_shell_ready; then
+    return 1
+  fi
+  enable_nested_extension
+  _print_extension_status
+}
+
+cmd_reload() {
+  require_nested
+  cmd_start
+}
+
+cmd_stop() {
+  require_nested
+  stop_nested_shell
+  echo "Nested Shell stopped"
+}
+
+cmd_host_restore() {
+  require_host
+  require_cmd gnome-extensions
+
+  if [[ "$(gsettings get org.gnome.shell disable-user-extensions 2>/dev/null)" == "true" ]]; then
+    echo "Host: clearing disable-user-extensions (GNOME disabled extensions after a crash)"
+    gsettings set org.gnome.shell disable-user-extensions false
+  fi
+
+  export GSETTINGS_SCHEMA_DIR="${EXTENSION_SCHEMAS}"
+  gsettings_ext set warp-app-id "${WARP_APP_ID}" 2>/dev/null || true
+
+  echo "Host: enabling ${UUID}..."
+  if ! gnome-extensions enable "${UUID}"; then
+    echo "${CMD}: gnome-extensions enable failed" >&2
+    echo "Log out and back in, then run: ${CMD} host-restore" >&2
+    return 1
+  fi
+
+  sleep 1
+  echo ""
+  _print_extension_status
+
+  if gnome-extensions info "${UUID}" 2>/dev/null | rg -q 'Enabled: Yes'; then
+    echo ""
+    echo "Host ready. Test Shift+Alt+T with Warp."
+    echo "If shortcuts do nothing or Shell errors appear, log out and back in."
+  else
+    echo "${CMD}: extension is not active on the host" >&2
+    echo "Run: gsettings set org.gnome.shell disable-user-extensions false" >&2
+    echo "Then: gnome-extensions enable ${UUID}" >&2
+    return 1
+  fi
+}
+
+main() {
+  local cmd="${1:-help}"
+  shift || true
+
+  case "${cmd}" in
+    help | -h | --help) usage ;;
+    host-prep) cmd_host_prep "$@" ;;
+    enter) cmd_enter "$@" ;;
+    start) cmd_start "$@" ;;
+    enable) cmd_enable "$@" ;;
+    reload) cmd_reload "$@" ;;
+    stop) cmd_stop "$@" ;;
+    host-restore) cmd_host_restore "$@" ;;
+    *)
+      echo "${CMD}: unknown command: ${cmd}" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
